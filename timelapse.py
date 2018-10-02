@@ -123,6 +123,9 @@ video_name = 'Timelapse-{:%Y-%m-%d %H_%M_%S}'.format(datetime.datetime.now())
 
 # Get the last folder number on the remote
 
+# TODO: USE NFS or SSHFS
+# sudo sshfs -o allow_other,IdentityFile=~/.ssh/id_rsa timelapser@rpiserv.local:/media/hdd/timelapser /mnt/remote
+
 command = [
 	"ssh",
 	remote,
