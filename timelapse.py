@@ -7,7 +7,7 @@ from os.path import isfile, join, splitext
 import datetime
 import subprocess
 import math
-from optparse import OptionParser
+from optparse import OptionParser, OptionGroup
 from PIL import Image
 
 
@@ -15,70 +15,88 @@ opt_parser = OptionParser()
 
 # Command line options
 
-opt_parser.add_option("-p", "--period",
-                      type="int", default=0,
-                      action="store", dest="period",
-                      help="Period between images in seconds")
+timing_options = OptionGroup(opt_parser, "Timing options")
 
-opt_parser.add_option("-d", "--duration",
-                      type="int", default=0,
-                      action="store", dest="duration",
-                      help="Duration in seconds for the timelapser to run")
+timing_options.add_option("-p", "--period",
+                          type="int", default=0,
+                          action="store", dest="period",
+                          help="Period between images in seconds")
 
-opt_parser.add_option("-r", "--framerate",
-                      type="int", default=10,
-                      action="store", dest="framerate",
-                      help="User specified framerate of the finished timelapse")
+timing_options.add_option("-d", "--duration",
+                          type="int", default=0,
+                          action="store", dest="duration",
+                          help="Duration in seconds for the timelapser to run")
 
-opt_parser.add_option("-f", "--infolder",
-                      default="images",
-                      action="store", dest="in_folder",
-                      help="Folder to store images in")
+timing_options.add_option("-r", "--framerate",
+                          type="int", default=10,
+                          action="store", dest="framerate",
+                          help="User specified framerate of the finished timelapse")
 
-opt_parser.add_option("-F", "--outfolder",
-                      default="output",
-                      action="store", dest="out_folder",
-                      help="Folder to store images in")
+opt_parser.add_option_group(timing_options)
 
-opt_parser.add_option("-r", "--rotate",
-                      type="int", default= 0,
-                      action="store", dest="rotate",
-                      help="Degrees to rotate image. Currently only 180 or 0 Deg is supported")
 
-opt_parser.add_option("-t", "--type",
-                      default=".png",
-                      action="append", dest="allowed_types",
-                      help="Add allowed file type")
+
+storage_options = OptionGroup(opt_parser, "Storage options")
+storage_options.add_option("-f", "--infolder",
+                           default="images",
+                           action="store", dest="in_folder",
+                           help="Folder to store images in")
+
+storage_options.add_option("-F", "--outfolder",
+                           default="output",
+                           action="store", dest="out_folder",
+                           help="Folder to store images in")
+
+storage_options.add_option("-t", "--type",
+                           default=".png",
+                           action="append", dest="allowed_types",
+                           help="Add allowed file types. Mostly intended for use without integrated image capture")
+opt_parser.add_option_group(storage_options)
+
+
+
+post_processing_options = OptionGroup(opt_parser, "Post Processing options")
+
+post_processing_options.add_option("-R", "--rotate",
+                                   type="int", default= 0,
+                                   action="store", dest="rotate",
+                                   help="Degrees to rotate image. Currently only 180 or 0 Deg is supported")
+
+post_processing_options.add_option("-c", "--crop",
+                                   default=False,
+                                   action="store_true", dest="crop",
+                                   help="Crop image to supplied ratio requires ratio to be provided")
+post_processing_options.add_option("-a", "--ratio",
+                                   type="float", default=0,
+                                   action="append", dest="ratio",
+                                   help="Desired output ratio, Ex: -a 16 -a 9 will be 16:9")
+post_processing_options.add_option("-s", "--scale",
+                                   default=False,
+                                   action="store_true", dest="scale",
+                                   help="Scale image to size. If only one dimention is given it'll retain ratio. Ex: -s 1920 -s 1080")
+
+opt_parser.add_option_group(post_processing_options)
 
 
 (options, args) = opt_parser.parse_args()
 
 ## CONFIG START
 
-# Filetypes looked for (This is used for converting duration to framrate)
-allowedFileExtensions = ['.png', '.jpg']
-
 # The pattern passed to ffmpeg for images to look for. in this example it looks
 # for images named img followed by 5 digits. fx 00001, then .jpg. 
 # It's case sensitive
 image_name_pattern = 'img%05d.jpg'
 
-# Rotate the images 180 degrees?
-rotate = False
-
-# Crop the image?
-crop = True
-crop_ratio = [16, 9] # Crop to a 16/9 format
-
-# Scale the image?
-scale = False
-scale_width = 1920
-
 #Lazily using a timestamp to name the output. Should be pretty much entirely unique
 video_name = 'Timelapse-{:%Y-%m-%d %H_%M_%S}'.format(datetime.datetime.now())
 
-
 ## CONFIG END
+
+# Rotate the images 180 degrees?
+rotate = False
+
+if options.rotate != 0:
+    rotate = True
 
 
 # Processing configs here
