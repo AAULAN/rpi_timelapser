@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 
 from os import listdir
 from os.path import isfile, join, splitext
@@ -74,7 +74,7 @@ post_processing_options.add_option(
 	action="append", dest="ratio",
 	help="Desired output ratio, Ex: -a 16 -a 9 will be 16:9")
 post_processing_options.add_option(
-	"-s", "--scale",
+	"-s", "--scale", #TODO Ensure that this doesn't append inputs to the default 0
 	default=0,
 	action="append", dest="scale",
 	help="Scale image to size. If only width is given it'll retain ratio. Ex: -s 1920 -s 1080")
@@ -83,30 +83,84 @@ opt_parser.add_option_group(post_processing_options)
 
 (options, args) = opt_parser.parse_args()
 
-## CONFIG START
+# Option checker
+
+# Calculate the missing timing variable
+if options.framerate > 0:
+	if options.duration > 0 and options.period == 0:
+		options.period = options.duration / options.framerate
+	elif options.period > 0 and options.duration == 0:
+		options.duration = options.framerate * options.period
+elif options.period and options.duration:
+	options.framerate = options.duration / options.period
+# If none of the above applies, there's an issue with the provided options
+else:
+	print("Incorrect timing options set")
+	sys.exit(1)
+
+
+# Ensure crop and ratio are both supplied if either are supplied
+if bool(options.crop) != (options.ratio == 2):
+	print("Crop and ratio have to be used together. ratio has to be 2 numbers")
+	sys.exit(1)
+
+# CONFIG START #
 
 # The pattern passed to ffmpeg for images to look for. in this example it looks
 # for images named img followed by 5 digits. fx 00001, then .jpg. 
 # It's case sensitive
-image_name_pattern = 'img%05d.jpg'
+image_name_pattern = 'img%010d.jpg'
+
+# Remote
+remote = 'timelapser@rpiserv.local'
+remote_folder = '/media/hdd/timelapser'
 
 # Lazily using a timestamp to name the output. Should be pretty much entirely unique
 video_name = 'Timelapse-{:%Y-%m-%d %H_%M_%S}'.format(datetime.datetime.now())
 
-## CONFIG END
+# CONFIG END #
+
+
+# Get the last folder number on the remote
+
+command = [
+	"ssh",
+	remote,
+	"ls " + remote_folder
+]
+
+p = subprocess.Popen(command, stdout=subprocess.PIPE)
+
+(output, err) = p.communicate()
+p.wait()
+
+last = int(output.decode.strip('\n').split('_')[-1])
+
+# Make new folder for new timelapse
+
+folder = '/capture_' + str(last+1)
+
+command = [
+	"ssh",
+	remote,
+	"mkdir -p " + remote_folder + folder
+]
+
+p = subprocess.Popen(command, stdout=subprocess.PIPE)
+
+(output, err) = p.communicate()
+p.wait()
+
+# Take the pictures
 
 
 
-
-# Processing configs here
-
-# Rotate the images 180 degrees?
-rotate = False
-
-if options.rotate != 0:
-	rotate = True
-
-# Get a list of all images
+command = [
+	'raspistill',
+	'-t', '30000',
+	'-tl', '2000',
+	'-o', options.out_folder + '/' + image_name_pattern
+]
 
 def get_images(path, file_types):
 	"This returns a list of all images of allowed type in the path"
@@ -124,6 +178,15 @@ def get_images(path, file_types):
 	return images
 
 
+# Rotate the images 180 degrees?
+rotate = False
+
+if options.rotate != 0:
+	rotate = True
+
+# Get a list of all images
+
+
 images = get_images(options.in_folder, options.allowed_types)
 
 img_count = len(images)
@@ -136,7 +199,7 @@ if options.crop:
 
 	if options.ratio.len() != 2:
 		print('Invalid aspect ratio provided')
-		sys.exit(1)
+		sys.exit(2)
 
 	# Get the dimensions of the first image.
 	img = Image.open(options.in_folder + '/' + images[0])
@@ -151,12 +214,11 @@ if options.crop:
 if options.scale > 0:
 	if options.scale.len() > 2:
 		print('Invalid scale')
-		sys.exit(2)
+		sys.exit(3)
 	elif options.scale.len() == 2:
 		scale_argument = 'scale={}:{}'.format(options.scale[0], options.scale[1])
 	else:
 		scale_argument = 'scale={}:-1'.format(options.scale[0])
-
 
 if rotate:
 	flip_argument = 'hflip,vflip'
@@ -177,20 +239,27 @@ if rotate:
 
 # Transformations end
 
-if framerate == 0:
-	framerate = math.floor(img_count / desired_video_duration) + 1  # +1 to avoid a framerate of 0fps
+framerate = 0
+
+if options.framerate == 0:
+	framerate = math.floor(img_count / options.duration) + 1  # +1 to avoid a framerate of 0fps
 
 # Construct subprocess list
 
-command = ['ffmpeg', '-r', '{}'.format(framerate), '-f', 'image2', '-start_number', start_number, '-i',
-		   image_path + '/' + image_name_pattern, '-codec:v', 'libx264']
+command = [
+	'ffmpeg',
+	'-r', '{}'.format(framerate),
+	'-f', 'image2',
+	'-start_number', '0000000001.jpg',
+	'-i', options.in_folder + '/' + image_name_pattern,
+	'-codec:v', 'libx264']
 
-if crop or scale or rotate:
+if options.crop or options.scale != 0 or rotate != 0:
 	command.append('-vf')
 	command.append(transformation_argument)
 
-command.append(video_name + '.mp4')
+command.append(options.out_folder + '/' + video_name + '.mp4')
 
 print('Making timelapse with selected options now')
-completed = subprocess.run(command, )
+completed = subprocess.run(command)
 print('Done')
