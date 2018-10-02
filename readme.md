@@ -9,12 +9,12 @@ To use it run it via:
 
 **To run indefinetly:**
 ```bash
-	timelapse.py -t [period between images]
+	timelapse.py -p [period between images]
 ```
 
 **To run for duration with specified framrate**
 ```bash
-	timelapse.py -f [framerate] -d [duration]
+	timelapse.py -r [framerate] -d [duration]
 ```
 
 **To run for duration with period**

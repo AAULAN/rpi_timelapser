@@ -7,14 +7,53 @@ from os.path import isfile, join, splitext
 import datetime
 import subprocess
 import math
+from optparse import OptionParser
 from PIL import Image
 
 
-## CONFIG START
+opt_parser = OptionParser()
 
-# Path to folders
-image_path = "./images"
-out_path = "."
+# Command line options
+
+opt_parser.add_option("-p", "--period",
+                      type="int", default=0,
+                      action="store", dest="period",
+                      help="Period between images in seconds")
+
+opt_parser.add_option("-d", "--duration",
+                      type="int", default=0,
+                      action="store", dest="duration",
+                      help="Duration in seconds for the timelapser to run")
+
+opt_parser.add_option("-r", "--framerate",
+                      type="int", default=10,
+                      action="store", dest="framerate",
+                      help="User specified framerate of the finished timelapse")
+
+opt_parser.add_option("-f", "--infolder",
+                      default="images",
+                      action="store", dest="in_folder",
+                      help="Folder to store images in")
+
+opt_parser.add_option("-F", "--outfolder",
+                      default="output",
+                      action="store", dest="out_folder",
+                      help="Folder to store images in")
+
+opt_parser.add_option("-r", "--rotate",
+                      type="int", default= 0,
+                      action="store", dest="rotate",
+                      help="Degrees to rotate image. Currently only 180 or 0 Deg is supported")
+
+opt_parser.add_option("-t", "--type",
+                      default=".png",
+                      action="append", dest="allowed_types",
+                      help="Add allowed file type")
+
+
+(options, args) = opt_parser.parse_args()
+
+## CONFIG START
 
 # Filetypes looked for (This is used for converting duration to framrate)
 allowedFileExtensions = ['.png', '.jpg']
@@ -23,14 +62,6 @@ allowedFileExtensions = ['.png', '.jpg']
 # for images named img followed by 5 digits. fx 00001, then .jpg. 
 # It's case sensitive
 image_name_pattern = 'img%05d.jpg'
-
-# The start of the number sequence for the images
-start_number = '00001'
-
-# You can set the framerate by desired video duration in seconds
-desired_video_duration = 5*60
-# or
-framerate = 10 # If this is 0, the above duration is used.
 
 # Rotate the images 180 degrees?
 rotate = False
