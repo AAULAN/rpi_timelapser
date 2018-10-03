@@ -1,6 +1,6 @@
 # RPI timelapser
 
-### CURRNENTLY NON-FUNCTIONAL, I might've accidentally thrown half of it away :S
+### CURRENTLY NON-FUNCTIONAL, I might've accidentally thrown half of it away :S
 
 This script is supposed to run on an RPi with some sort of camera attached. 
 It will first call a script that runs either untill stopped, or for a specified amount of time.
