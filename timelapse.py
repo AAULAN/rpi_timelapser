@@ -24,13 +24,10 @@ remote_folder = '/home/timelapser/timelapses'
 
 # Lazily using a timestamp to name the output. Should be pretty much entirely unique
 video_name = 'Timelapse-{:%Y-%m-%d %H_%M_%S}'.format(datetime.datetime.now())
-
-# CONFIG END #
+# CONFIG END
 
 # Command line options
-
 timing_options = OptionGroup(opt_parser, "Timing options")
-
 timing_options.add_option(
 	"-p", "--period",
 	type="int", default=0,
@@ -99,16 +96,29 @@ opt_parser.add_option_group(post_processing_options)
 
 (options, args) = opt_parser.parse_args()
 
+
 # Option checker
 
-if options.framerate == 0 or options.period == 0:
-	print("Output framerate, and realtime period are both required")
-	sys.exit(1)
+def check_options():
+	if options.framerate == 0 or options.period == 0:
+		print("Output framerate, and realtime period are both required")
+		sys.exit(1)
 
-# Ensure crop and ratio are both supplied if either are supplied
-if bool(options.crop) != (len(options.ratio) == 2):
-	print("Crop and ratio have to be used together. ratio has to be 2 numbers")
-	sys.exit(1)
+	# Ensure crop and ratio are both supplied if either are supplied
+	if bool(options.crop) != (len(options.ratio) == 2):
+		print("Crop and ratio have to be used together. ratio has to be 2 numbers")
+		sys.exit(1)
+
+	if os.path.exists(options.in_folder) or os.path.exists(options.out_folder):
+		print("Please make sure your input and output folders don't already exist")
+		sys.exit(1)
+
+command = [
+	'mkdir', '-p',
+	options.in_folder, options.out_folder
+]
+
+
 
 # TODO: USE NFS or SSHFS maybe?
 # sudo sshfs -o allow_other,IdentityFile=~/.ssh/id_rsa timelapser@rpiserv.local:/media/hdd/timelapser /mnt/remote
