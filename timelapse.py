@@ -2,12 +2,22 @@
 
 from os import listdir
 from os.path import isfile, join, splitext
+from optparse import OptionParser, OptionGroup
+from time import sleep
 import datetime
 import subprocess
 import math
-from optparse import OptionParser, OptionGroup
 import sys
-from PIL import Image
+
+try:
+	from PIL import Image
+except ImportError:
+	sys.exit("You need Pillow!\ninstall it from https://pillow.readthedocs.io/en/3.3.x/installation.html#basic-installation")
+
+try:
+	import paramiko
+except ImportError:
+	sys.exit("You need Paramiko: pip3 install paramiko")
 
 opt_parser = OptionParser()
 
@@ -19,8 +29,13 @@ opt_parser = OptionParser()
 image_name_pattern = 'img%010d.jpg'
 
 # Remote
-remote = 'timelapser@35.242.212.146'
-remote_folder = '/home/timelapser/timelapses'
+remote = {
+	'host': '35.242.212.146',
+	'port': 22,
+	'user': 'timelapser',
+	'key': '~/.ssh/id_rsa',
+	'folder': '/home/timelapser/timelapses'
+}
 
 # Lazily using a timestamp to name the output. Should be pretty much entirely unique
 video_name = 'Timelapse-{:%Y-%m-%d %H_%M_%S}'.format(datetime.datetime.now())
@@ -53,12 +68,6 @@ storage_options.add_option(
 	"-f", "--infolder",
 	default="images",
 	action="store", dest="in_folder",
-	help="Folder to store images in")
-
-storage_options.add_option(
-	"-F", "--outfolder",
-	default="output",
-	action="store", dest="out_folder",
 	help="Folder to store images in")
 
 storage_options.add_option(
@@ -98,75 +107,105 @@ opt_parser.add_option_group(post_processing_options)
 
 
 # Option checker
-
 def check_options():
 	if options.framerate == 0 or options.period == 0:
-		print("Output framerate, and realtime period are both required")
-		sys.exit(1)
+		sys.exit("Output framerate, and realtime period are both required")
 
 	# Ensure crop and ratio are both supplied if either are supplied
 	if bool(options.crop) != (len(options.ratio) == 2):
-		print("Crop and ratio have to be used together. ratio has to be 2 numbers")
-		sys.exit(1)
+		sys.exit("Crop and ratio have to be used together. ratio has to be 2 numbers")
+
 
 	if os.path.exists(options.in_folder) or os.path.exists(options.out_folder):
-		print("Please make sure your input and output folders don't already exist")
-		sys.exit(1)
+		sys.exit("Please make sure your input and output folders don't already exist")
 
-command = [
-	'mkdir', '-p',
-	options.in_folder, options.out_folder
-]
+def init():
+	check_options()
+
+	# Set up local image folder
+	command = ['mkdir', '-p', options.in_folder]
+	subprocess.run(command, stdout=subprocess.PIPE, check=True)
+
+	# Get last output folder name on remote TODO: move this to paramiko SSH
+	command = ["ssh", remote['user'] + '@' + remote['host'], "ls " + remote['folder']]
+	p = subprocess.run(command, stdout=subprocess.PIPE, check=True)
+
+	next_folder = 0
+	if p.stdout is not None:
+		next_folder = int(p.stdout.decode().strip('\n').split('_')[-1]) + 1
 
 
+	print('Starting timelapse number: ' + str(next_folder))
 
-# TODO: USE NFS or SSHFS maybe?
-# sudo sshfs -o allow_other,IdentityFile=~/.ssh/id_rsa timelapser@rpiserv.local:/media/hdd/timelapser /mnt/remote
+	# Create new folder on remote TODO: move this to paramiko SSH
+	command = ["ssh", remote['user'] + '@' + remote['host'], "mkdir -p " + remote['folder'] + 'capture_' + str(next_folder)]
+	subprocess.run(command, check=True)
 
-# Get the last folder number on the remote
-command = [
-	"ssh",
-	remote,
-	"ls " + remote_folder
-]
+def put_images(images, local_path, remote_path, remove_files=False):
+	sftp_client = create_sftp_client(remote['host'], remote['port'], remote['user'], None, remote['key'], 'RSA')
 
-p = subprocess.Popen(command, stdout=subprocess.PIPE)
+	for image in images:
+		sftp_client.put(local_path + image, remote_path + image)
 
-(output, err) = p.communicate()
-p.wait()
+		if remove_files:
+			os.remove(local_path + image)
 
-output = output.decode()
 
-next_folder = 0
+def image_handling():
+	command = [
+		'raspistill',
+		'-t', options.duration * 1000,
+		'-tl', options.period * 1000,
+		'-o', options.out_folder + '/' + image_name_pattern
+	]
+	p = subprocess.Popen(command)
 
-if len(output) > 0:
-	next_folder = int(output.strip('\n').split('_')[-1]) + 1
+	while p.poll() is None:
+		imgs = get_images(options.in_folder, options.allowed_types)
 
-print('Starting timelapse number: ' + str(next_folder))
+		if len(imgs) >= 10:
+			put_images(imgs)
+		sleep(1)
 
-# Make new folder for new timelapse
 
-folder = '/capture_' + str(next_folder)
+# Found here: https://www.ivankrizsan.se/2016/04/28/implementing-a-sftp-client-using-python-and-paramiko/
+def create_sftp_client(host, port, username, password, keyfilepath, keyfiletype):
+	"""
+	create_sftp_client(host, port, username, password, keyfilepath, keyfiletype) -> SFTPClient
 
-command = [
-	"ssh",
-	remote,
-	"mkdir -p " + remote_folder + folder
-]
+	Creates a SFTP client connected to the supplied host on the supplied port authenticating as the user with
+	supplied username and supplied password or with the private key in a file with the supplied path.
+	If a private key is used for authentication, the type of the keyfile needs to be specified as DSA or RSA.
+	:rtype: SFTPClient object.
+	"""
+	sftp = None
+	key = None
+	transport = None
+	try:
+		if keyfilepath is not None:
+			# Get private key used to authenticate user.
+			if keyfiletype == 'DSA':
+				# The private key is a DSA type key.
+				key = paramiko.DSSKey.from_private_key_file(keyfilepath)
+			else:
+				# The private key is a RSA type key.
+				key = paramiko.RSAKey.from_private_key(keyfilepath)
 
-p = subprocess.Popen(command, stdout=subprocess.PIPE)
+		# Create Transport object using supplied method of authentication.
+		transport = paramiko.Transport((host, port))
+		transport.connect(None, username, password, key)
 
-(output, err) = p.communicate()
-p.wait()
+		sftp = paramiko.SFTPClient.from_transport(transport)
 
-# Take the pictures
+		return sftp
+	except Exception as e:
+		print('An error occurred creating SFTP client: %s: %s' % (e.__class__, e))
+		if sftp is not None:
+			sftp.close()
+		if transport is not None:
+			transport.close()
+		pass
 
-command = [
-	'raspistill',
-	'-t', options.duration * 1000,
-	'-tl', options.period * 1000,
-	'-o', options.out_folder + '/' + image_name_pattern
-]
 
 def get_images(path, file_types):
 	"This returns a list of all images of allowed type in the path"
@@ -184,15 +223,6 @@ def get_images(path, file_types):
 	return images
 
 
-# Rotate the images 180 degrees?
-rotate = False
-
-if options.rotate != 0:
-	rotate = True
-
-# Get a list of all images
-
-
 images = get_images(options.in_folder, options.allowed_types)
 
 img_count = len(images)
@@ -204,8 +234,7 @@ flip_argument = ''
 if options.crop:
 
 	if options.ratio.len() != 2:
-		print('Invalid aspect ratio provided')
-		sys.exit(2)
+		sys.exit('Invalid aspect ratio provided')
 
 	# Get the dimensions of the first image.
 	img = Image.open(options.in_folder + '/' + images[0])
@@ -219,18 +248,17 @@ if options.crop:
 
 if options.scale > 0:
 	if options.scale.len() > 2:
-		print('Invalid scale')
-		sys.exit(3)
+		sys.exit('Invalid scale')
+
 	elif options.scale.len() == 2:
 		scale_argument = 'scale={}:{}'.format(options.scale[0], options.scale[1])
 	else:
 		scale_argument = 'scale={}:-1'.format(options.scale[0])
 
-if rotate:
+if bool(options.rotate):
 	flip_argument = 'hflip,vflip'
 
 # construct transformation argument
-first = True
 
 transformation_argument = []
 
@@ -240,23 +268,18 @@ if options.crop:
 if options.scale:
 	transformation_argument.append(scale_argument)
 
-if rotate:
+if bool(options.rotate):
 	transformation_argument.append(flip_argument)
 
 # Transformations end
-
-framerate = 0
-
-if options.framerate == 0:
-	framerate = math.floor(img_count / options.duration) + 1  # +1 to avoid a framerate of 0fps
 
 # Construct subprocess list
 
 command = [
 	'ffmpeg',
-	'-r', '{}'.format(framerate),
+	'-r', '{}'.format(options.framerate),
 	'-f', 'image2',
-	'-start_number', '0000000001.jpg',
+	'-start_number', '0000000000.jpg',
 	'-i', options.in_folder + '/' + image_name_pattern,
 	'-codec:v', 'libx264']
 
