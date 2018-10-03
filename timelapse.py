@@ -11,6 +11,22 @@ from PIL import Image
 
 opt_parser = OptionParser()
 
+# CONFIG START #
+
+# The pattern passed to ffmpeg for images to look for. in this example it looks
+# for images named img followed by 5 digits. fx 00001, then .jpg.
+# It's case sensitive
+image_name_pattern = 'img%010d.jpg'
+
+# Remote
+remote = 'timelapser@35.242.212.146'
+remote_folder = '/home/timelapser/timelapses'
+
+# Lazily using a timestamp to name the output. Should be pretty much entirely unique
+video_name = 'Timelapse-{:%Y-%m-%d %H_%M_%S}'.format(datetime.datetime.now())
+
+# CONFIG END #
+
 # Command line options
 
 timing_options = OptionGroup(opt_parser, "Timing options")
@@ -70,7 +86,7 @@ post_processing_options.add_option(
 	help="Crop image to supplied ratio requires ratio to be provided")
 post_processing_options.add_option(
 	"-a", "--ratio",
-	type="float", default=0,
+	type="float",
 	action="append", dest="ratio",
 	help="Desired output ratio, Ex: -a 16 -a 9 will be 16:9")
 post_processing_options.add_option(
@@ -85,47 +101,19 @@ opt_parser.add_option_group(post_processing_options)
 
 # Option checker
 
-# Calculate the missing timing variable
-if options.framerate > 0:
-	if options.duration > 0 and options.period == 0:
-		options.period = options.duration / options.framerate
-	elif options.period > 0 and options.duration == 0:
-		options.duration = options.framerate * options.period
-elif options.period and options.duration:
-	options.framerate = options.duration / options.period
-# If none of the above applies, there's an issue with the provided options
-else:
-	print("Incorrect timing options set")
+if options.framerate == 0 or options.period == 0:
+	print("Output framerate, and realtime period are both required")
 	sys.exit(1)
 
-
 # Ensure crop and ratio are both supplied if either are supplied
-if bool(options.crop) != (options.ratio == 2):
+if bool(options.crop) != (len(options.ratio) == 2):
 	print("Crop and ratio have to be used together. ratio has to be 2 numbers")
 	sys.exit(1)
 
-# CONFIG START #
-
-# The pattern passed to ffmpeg for images to look for. in this example it looks
-# for images named img followed by 5 digits. fx 00001, then .jpg. 
-# It's case sensitive
-image_name_pattern = 'img%010d.jpg'
-
-# Remote
-remote = 'timelapser@rpiserv.local'
-remote_folder = '/media/hdd/timelapser'
-
-# Lazily using a timestamp to name the output. Should be pretty much entirely unique
-video_name = 'Timelapse-{:%Y-%m-%d %H_%M_%S}'.format(datetime.datetime.now())
-
-# CONFIG END #
-
-
-# Get the last folder number on the remote
-
-# TODO: USE NFS or SSHFS
+# TODO: USE NFS or SSHFS maybe?
 # sudo sshfs -o allow_other,IdentityFile=~/.ssh/id_rsa timelapser@rpiserv.local:/media/hdd/timelapser /mnt/remote
 
+# Get the last folder number on the remote
 command = [
 	"ssh",
 	remote,
@@ -137,11 +125,18 @@ p = subprocess.Popen(command, stdout=subprocess.PIPE)
 (output, err) = p.communicate()
 p.wait()
 
-last = int(output.decode.strip('\n').split('_')[-1])
+output = output.decode()
+
+next_folder = 0
+
+if len(output) > 0:
+	next_folder = int(output.strip('\n').split('_')[-1]) + 1
+
+print('Starting timelapse number: ' + str(next_folder))
 
 # Make new folder for new timelapse
 
-folder = '/capture_' + str(last+1)
+folder = '/capture_' + str(next_folder)
 
 command = [
 	"ssh",
@@ -156,12 +151,10 @@ p.wait()
 
 # Take the pictures
 
-
-
 command = [
 	'raspistill',
-	'-t', '30000',
-	'-tl', '2000',
+	'-t', options.duration * 1000,
+	'-tl', options.period * 1000,
 	'-o', options.out_folder + '/' + image_name_pattern
 ]
 
