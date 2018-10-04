@@ -14,10 +14,10 @@ To use it run it via:
 
 **To run for duration with specified framrate**
 ```bash
-	timelapse.py -r [framerate] -d [duration]
+	timelapse.py -r [framerate] -d [duration] -D [video duration]
 ```
 
 **To run for duration with period**
 ```bash
-	timelapse.py -t [period between images] -d [duration]
+	timelapse.py -p [period between images] -d [duration]
 ```

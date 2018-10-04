@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from os import listdir
+from os import listdir, remove
 from os.path import isfile, join, splitext
 from optparse import OptionParser, OptionGroup
 from time import sleep
@@ -8,6 +8,7 @@ import datetime
 import subprocess
 import math
 import sys
+import tempfile
 
 try:
 	from PIL import Image
@@ -41,135 +42,77 @@ remote = {
 video_name = 'Timelapse-{:%Y-%m-%d %H_%M_%S}'.format(datetime.datetime.now())
 # CONFIG END
 
-# Command line options
-timing_options = OptionGroup(opt_parser, "Timing options")
-timing_options.add_option(
-	"-p", "--period",
-	type="int", default=0,
-	action="store", dest="period",
-	help="Period between images in seconds")
 
-timing_options.add_option(
-	"-d", "--duration",
-	type="int", default=0,
-	action="store", dest="duration",
-	help="Duration in seconds for the timelapser to run")
+def create_command_line_options()
+	# Command line options
+	timing_options = OptionGroup(opt_parser, "Timing options")
+	timing_options.add_option(
+		"-p", "--period",
+		type="int", default=0,
+		action="store", dest="period",
+		help="Period between images in seconds")
 
-timing_options.add_option(
-	"-r", "--framerate",
-	type="int", default=10,
-	action="store", dest="framerate",
-	help="User specified framerate of the finished timelapse")
+	timing_options.add_option(
+		"-d", "--duration",
+		type="int", default=0,
+		action="store", dest="duration",
+		help="Duration in seconds for the timelapser to run")
 
-opt_parser.add_option_group(timing_options)
+	timing_options.add_option(
+		"-D", "--videoduration",
+		type="int", default=0,
+		action="store", dest="vid_duration",
+		help="Duration in seconds for the final video")
 
-storage_options = OptionGroup(opt_parser, "Storage options")
-storage_options.add_option(
-	"-f", "--infolder",
-	default="images",
-	action="store", dest="in_folder",
-	help="Folder to store images in")
+	timing_options.add_option(
+		"-r", "--framerate",
+		type="int", default=10,
+		action="store", dest="framerate",
+		help="User specified framerate of the finished timelapse")
 
-storage_options.add_option(
-	"-t", "--type",
-	default=".jpg",
-	action="append", dest="allowed_types",
-	help="Add allowed file types. Mostly intended for use without integrated image capture")
-opt_parser.add_option_group(storage_options)
+	opt_parser.add_option_group(timing_options)
 
-post_processing_options = OptionGroup(opt_parser, "Post Processing options")
+	storage_options = OptionGroup(opt_parser, "Format options")
 
-post_processing_options.add_option(
-	"-R", "--rotate",
-	type="int", default=0,
-	action="store", dest="rotate",
-	help="Degrees to rotate image. Currently only 180 or 0 Deg is supported")
+	storage_options.add_option(
+		"-t", "--type",
+		default=".jpg",
+		action="append", dest="allowed_types",
+		help="Add allowed file types. Mostly intended for use without integrated image capture")
+	opt_parser.add_option_group(storage_options)
 
-post_processing_options.add_option(
-	"-c", "--crop",
-	default=False,
-	action="store_true", dest="crop",
-	help="Crop image to supplied ratio requires ratio to be provided")
-post_processing_options.add_option(
-	"-a", "--ratio",
-	type="float",
-	action="append", dest="ratio",
-	help="Desired output ratio, Ex: -a 16 -a 9 will be 16:9")
-post_processing_options.add_option(
-	"-s", "--scale", #TODO Ensure that this doesn't append inputs to the default 0
-	default=0,
-	action="append", dest="scale",
-	help="Scale image to size. If only width is given it'll retain ratio. Ex: -s 1920 -s 1080")
+	post_processing_options = OptionGroup(opt_parser, "Post Processing options")
 
-opt_parser.add_option_group(post_processing_options)
+	post_processing_options.add_option(
+		"-R", "--rotate",
+		type="int", default=0,
+		action="store", dest="rotate",
+		help="Degrees to rotate image. Currently only 180 or 0 Deg is supported")
 
-(options, args) = opt_parser.parse_args()
+	post_processing_options.add_option(
+		"-c", "--crop",
+		default=False,
+		action="store_true", dest="crop",
+		help="Crop image to supplied ratio requires ratio to be provided")
+	post_processing_options.add_option(
+		"-a", "--ratio",
+		type="float",
+		action="append", dest="ratio",
+		help="Desired output ratio, Ex: -a 16 -a 9 will be 16:9")
+	post_processing_options.add_option(
+		"-s", "--scale",  # TODO Ensure that this doesn't append inputs to the default 0
+		default=0,
+		action="append", dest="scale",
+		help="Scale image to size. If only width is given it'll retain ratio. Ex: -s 1920 -s 1080")
 
+	opt_parser.add_option_group(post_processing_options)
 
-# Option checker
-def check_options():
-	if options.framerate == 0 or options.period == 0:
-		sys.exit("Output framerate, and realtime period are both required")
+	(options, args) = opt_parser.parse_args()
 
-	# Ensure crop and ratio are both supplied if either are supplied
-	if bool(options.crop) != (len(options.ratio) == 2):
-		sys.exit("Crop and ratio have to be used together. ratio has to be 2 numbers")
-
-
-	if os.path.exists(options.in_folder) or os.path.exists(options.out_folder):
-		sys.exit("Please make sure your input and output folders don't already exist")
-
-def init():
-	check_options()
-
-	# Set up local image folder
-	command = ['mkdir', '-p', options.in_folder]
-	subprocess.run(command, stdout=subprocess.PIPE, check=True)
-
-	# Get last output folder name on remote TODO: move this to paramiko SSH
-	command = ["ssh", remote['user'] + '@' + remote['host'], "ls " + remote['folder']]
-	p = subprocess.run(command, stdout=subprocess.PIPE, check=True)
-
-	next_folder = 0
-	if p.stdout is not None:
-		next_folder = int(p.stdout.decode().strip('\n').split('_')[-1]) + 1
-
-
-	print('Starting timelapse number: ' + str(next_folder))
-
-	# Create new folder on remote TODO: move this to paramiko SSH
-	command = ["ssh", remote['user'] + '@' + remote['host'], "mkdir -p " + remote['folder'] + 'capture_' + str(next_folder)]
-	subprocess.run(command, check=True)
-
-def put_images(images, local_path, remote_path, remove_files=False):
-	sftp_client = create_sftp_client(remote['host'], remote['port'], remote['user'], None, remote['key'], 'RSA')
-
-	for image in images:
-		sftp_client.put(local_path + image, remote_path + image)
-
-		if remove_files:
-			os.remove(local_path + image)
-
-
-def image_handling():
-	command = [
-		'raspistill',
-		'-t', options.duration * 1000,
-		'-tl', options.period * 1000,
-		'-o', options.out_folder + '/' + image_name_pattern
-	]
-	p = subprocess.Popen(command)
-
-	while p.poll() is None:
-		imgs = get_images(options.in_folder, options.allowed_types)
-
-		if len(imgs) >= 10:
-			put_images(imgs)
-		sleep(1)
-
+	return options
 
 # Found here: https://www.ivankrizsan.se/2016/04/28/implementing-a-sftp-client-using-python-and-paramiko/
-def create_sftp_client(host, port, username, password, keyfilepath, keyfiletype):
+def create_sftp_client(host, port, username, password=None, keyfilepath=None, keyfiletype=None, skip_sftp=False):
 	"""
 	create_sftp_client(host, port, username, password, keyfilepath, keyfiletype) -> SFTPClient
 
@@ -178,9 +121,9 @@ def create_sftp_client(host, port, username, password, keyfilepath, keyfiletype)
 	If a private key is used for authentication, the type of the keyfile needs to be specified as DSA or RSA.
 	:rtype: SFTPClient object.
 	"""
+	ssh = None
 	sftp = None
 	key = None
-	transport = None
 	try:
 		if keyfilepath is not None:
 			# Get private key used to authenticate user.
@@ -191,20 +134,136 @@ def create_sftp_client(host, port, username, password, keyfilepath, keyfiletype)
 				# The private key is a RSA type key.
 				key = paramiko.RSAKey.from_private_key(keyfilepath)
 
-		# Create Transport object using supplied method of authentication.
-		transport = paramiko.Transport((host, port))
-		transport.connect(None, username, password, key)
+		# Connect SSH client accepting all host keys.
+		ssh = paramiko.SSHClient()
+		ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+		ssh.connect(host, port, username, password, key)
 
-		sftp = paramiko.SFTPClient.from_transport(transport)
+		if skip_sftp:
+			return ssh
+
+		# Using the SSH client, create a SFTP client.
+		sftp = ssh.open_sftp()
+		# Keep a reference to the SSH client in the SFTP client as to prevent the former from
+		# being garbage collected and the connection from being closed.
+		sftp.sshclient = ssh
 
 		return sftp
 	except Exception as e:
 		print('An error occurred creating SFTP client: %s: %s' % (e.__class__, e))
 		if sftp is not None:
 			sftp.close()
-		if transport is not None:
-			transport.close()
+		if ssh is not None:
+			ssh.close()
 		pass
+
+
+# Option checker
+def check_options():
+
+	opt = create_command_line_options()
+
+	# Timing option checks
+	timing_options_set = 0
+
+	if bool(opt.framerate):
+		timing_options_set += 1
+
+	if bool(opt.period):
+		timing_options_set += 1
+
+	if bool(opt.duration):
+		timing_options_set += 1
+
+	if bool(opt.vid_duration):
+		timing_options_set += 1
+
+	if timing_options_set > 3:
+		sys.exit("Too many timing options provided")
+
+	if timing_options_set <= 3:
+		if timing_options_set == 2:
+			if bool(opt.period) and (bool(opt.framerate) or bool(opt.vid_duration)):
+				pass
+			else:
+				sys.exit("For indefinite running, you have to supply period and (framerate or video duration)")
+
+		elif timing_options_set == 3:
+			if opt.framerate is None:
+				opt.framerate = opt.duration / (opt.period * opt.vid_duration)
+
+			elif opt.period is None:
+				opt.period = opt.duration / (opt.framerate * opt.vid_duration)
+
+			elif opt.duration is None:
+				opt.duration = opt.period * opt.framerate * opt.vid_duration
+
+			elif opt.vid_duration is None:
+				opt.vid_duration = opt.duration / (opt.framerate * opt.period)
+
+			else:
+				sys.exit("what happened in the option checker?")
+
+		else:
+			sys.exit("Too few timing parameters given")
+
+	# Ensure crop and ratio are both supplied if either are supplied
+	if bool(opt.crop) != (len(opt.ratio) == 2):
+		sys.exit("Crop and ratio have to be used together. ratio has to be 2 numbers")
+
+	return opt
+
+def init():
+	# Set up local image folder
+	temp_dir = tempfile.TemporaryDirectory()
+	print('created temporary directory', temp_dir.name)
+
+	# Get last output folder name on remote
+	sftp_client = create_sftp_client(remote['host'], remote['port'], remote['user'], None, remote['key'], 'RSA')
+	ls_list = sftp_client.listdir(remote['folder'])
+
+	next_folder = 0
+	if bool(ls_list):
+		for folder in ls_list:
+			x = int(folder.split('_')[-1])
+			if x > next_folder:
+				next_folder = x
+		next_folder += 1
+
+	print('Starting timelapse number: ' + str(next_folder))
+
+	# Create new folder on remote
+	sftp_client.mkdir(remote['folder'] + 'capture_' + str(next_folder), 771)
+
+	return temp_dir
+
+def put_images(images, local_path, remote_path, remove_files=False):
+	sftp_client = create_sftp_client(remote['host'], remote['port'], remote['user'], None, remote['key'], 'RSA')
+
+	for image in images:
+		sftp_client.put(local_path + image, remote_path + image)
+
+		if remove_files:
+			remove(local_path + image)
+
+	sftp_client.close()
+
+
+def image_handling(duration, period, path, name_pattern, allowed_types):
+	command = [
+		'raspistill',
+		'-t', duration * 1000,
+		'-tl', period * 1000,
+		'-o', path + '/' + name_pattern
+	]
+	p = subprocess.Popen(command)
+
+	while p.poll() is None:
+		imgs = get_images(path, allowed_types)
+
+		if len(imgs) >= 10:
+			put_images(imgs)
+		sleep(1)
 
 
 def get_images(path, file_types):
@@ -222,73 +281,92 @@ def get_images(path, file_types):
 
 	return images
 
+def get_image_size(path):
 
-images = get_images(options.in_folder, options.allowed_types)
+	width = 0
+	height = 0
 
-img_count = len(images)
+	sftp_client = create_sftp_client(remote['host'], remote['port'], remote['user'], None, remote['key'], 'RSA')
 
-# Transformations
-crop_argument = ''
-scale_argument = ''
-flip_argument = ''
-if options.crop:
+	return width, height
 
-	if options.ratio.len() != 2:
-		sys.exit('Invalid aspect ratio provided')
 
-	# Get the dimensions of the first image.
-	img = Image.open(options.in_folder + '/' + images[0])
-	width, height = img.size
-	img.close()
 
-	cropped_height = math.floor(width * options.ratio[1] / options.ratio[0])
-	crop_height_start = math.floor((height - cropped_height) / 2)
+def get_transformation(size=None, crop=None, scale=None, aspect=None, rotate=0, local_path=None):
+	"""Constructs a list of transform operations for ffmpeg"""
 
-	crop_argument = 'crop={}:{}:0:{}'.format(width, cropped_height, crop_height_start)
+	tf_arg = []
+	crop_argument = ''
+	scale_argument = ''
+	flip_argument = ''
 
-if options.scale > 0:
-	if options.scale.len() > 2:
-		sys.exit('Invalid scale')
+	if crop:
+		if size is None:
+			# Get the dimensions of the first image.
+			width, height = get_image_size(local_path)#TODO
+		else:
+			width = size[0]
+			height = size[1]
 
-	elif options.scale.len() == 2:
-		scale_argument = 'scale={}:{}'.format(options.scale[0], options.scale[1])
-	else:
-		scale_argument = 'scale={}:-1'.format(options.scale[0])
+		cropped_height = math.floor(width * aspect[1] / aspect[0])
+		crop_height_start = math.floor((height - cropped_height) / 2)
 
-if bool(options.rotate):
-	flip_argument = 'hflip,vflip'
+		crop_argument = 'crop={}:{}:0:{}'.format(width, cropped_height, crop_height_start)
 
-# construct transformation argument
+	if scale > 0:
+		if len(scale) > 2:
+			sys.exit('Invalid scale')
 
-transformation_argument = []
+		elif len(scale) == 2:
+			scale_argument = 'scale={}:{}'.format(scale[0], scale[1])
+		else:
+			scale_argument = 'scale={}:-1'.format(scale[0])
 
-if options.crop:
-	transformation_argument.append(crop_argument)
+	if bool(rotate):
+		flip_argument = 'hflip,vflip'
 
-if options.scale:
-	transformation_argument.append(scale_argument)
+	# construct transformation argument
 
-if bool(options.rotate):
-	transformation_argument.append(flip_argument)
+	if crop:
+		tf_arg.append(crop_argument)
 
-# Transformations end
+	if scale:
+		tf_arg.append(scale_argument)
 
-# Construct subprocess list
+	if bool(rotate):
+		tf_arg.append(flip_argument)
 
-command = [
-	'ffmpeg',
-	'-r', '{}'.format(options.framerate),
-	'-f', 'image2',
-	'-start_number', '0000000000.jpg',
-	'-i', options.in_folder + '/' + image_name_pattern,
-	'-codec:v', 'libx264']
+	# Transformations ends
+	return tf_arg
 
-if options.crop or options.scale != 0 or rotate != 0:
-	command.append('-vf')
-	command.append(transformation_argument)
+def get_ffmpeg_command(framerate, remote_folder, ):
+	"""This command generates the ffmpeg command string to execute on the remote host"""
+	command = [
+		'ffmpeg',
+		'-r', '{}'.format(options.framerate),
+		'-f', 'image2',
+		'-start_number', '0000000000.jpg',
+		'-i', options.in_folder + '/' + image_name_pattern,
+		'-codec:v', 'libx264']
 
-command.append(options.out_folder + '/' + video_name + '.mp4')
+	if options.crop or bool(options.scale) or bool(options.rotate):
+		command.append('-vf')
+		command.append(get_transformation())
+
+	command.append(options.out_folder + '/' + video_name + '.mp4')
+
+	return command
+
+
+if __name__ == "__main__":
+	check_options()
+	local_dir = init()
+
 
 print('Making timelapse with selected options now')
-completed = subprocess.run(command)
+
+ssh_client = create_sftp_client(remote['host'], remote['port'], remote['user'], None, remote['key'], 'RSA', True)
+ssh_client.exec_command(' '.join(get_ffmpeg_command()))
+ssh_client.close()
+
 print('Done')
