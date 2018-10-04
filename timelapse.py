@@ -30,16 +30,13 @@ opt_parser = OptionParser()
 image_name_pattern = 'img%010d.jpg'
 
 # Remote
-remote = {
+remote_info = {
 	'host': '35.242.212.146',
 	'port': 22,
 	'user': 'timelapser',
 	'key': '~/.ssh/id_rsa',
 	'folder': '/home/timelapser/timelapses'
 }
-
-# Lazily using a timestamp to name the output. Should be pretty much entirely unique
-video_name = 'Timelapse-{:%Y-%m-%d %H_%M_%S}'.format(datetime.datetime.now())
 # CONFIG END
 
 
@@ -213,7 +210,7 @@ def check_options():
 
 	return opt
 
-def init():
+def init(remote):
 	# Set up local image folder
 	temp_dir = tempfile.TemporaryDirectory()
 	print('created temporary directory', temp_dir.name)
@@ -237,6 +234,7 @@ def init():
 
 	return temp_dir
 
+
 def put_images(images, local_path, remote_path, remove_files=False):
 	sftp_client = create_sftp_client(remote['host'], remote['port'], remote['user'], None, remote['key'], 'RSA')
 
@@ -249,30 +247,40 @@ def put_images(images, local_path, remote_path, remove_files=False):
 	sftp_client.close()
 
 
-def image_handling(duration, period, path, name_pattern, allowed_types):
+def image_handling(duration, period, local_path, name_pattern, allowed_types, remote):
 	command = [
 		'raspistill',
 		'-t', duration * 1000,
 		'-tl', period * 1000,
-		'-o', path + '/' + name_pattern
+		'-o', local_path + '/' + name_pattern
 	]
 	p = subprocess.Popen(command)
 
 	while p.poll() is None:
-		imgs = get_images(path, allowed_types)
+		imgs = get_images(local_path, allowed_types)
 
 		if len(imgs) >= 10:
-			put_images(imgs)
+			put_images(imgs, local_path, remote['folder'], True)
 		sleep(1)
 
+	imgs = get_images(local_path, allowed_types)
+	put_images(imgs, local_path, remote['folder'], True)
 
-def get_images(path, file_types):
+
+def get_images(path, file_types, local=True, remote=None):
 	"This returns a list of all images of allowed type in the path"
 	# print("Getting images from {} of type {}".format(path, ','.join(file_types)))
 	print("Getting images from {}".format(path))
 
-	# List all files and remove files that aren't images from the list
-	images = [f for f in listdir(path) if isfile(join(path, f))]
+	images = None
+
+	if local:
+		images = [f for f in listdir(path) if isfile(join(path, f))]
+
+	elif remote is not None:
+		sftp_client = create_sftp_client(remote['host'], remote['port'], remote['user'], None, remote['key'], 'RSA')
+		images = sftp_client.listdir(remote['folder'])
+		sftp_client.close()
 
 	for item in images:
 		file_name, ext = splitext(item)
@@ -281,15 +289,21 @@ def get_images(path, file_types):
 
 	return images
 
-def get_image_size(path):
 
-	width = 0
-	height = 0
+def get_image_size(remote, allowed_type):
 
-	sftp_client = create_sftp_client(remote['host'], remote['port'], remote['user'], None, remote['key'], 'RSA')
+	images = get_images(None, allowed_type, False, remote)
+
+	with tempfile.TemporaryDirectory() as temp:
+		sftp_client = create_sftp_client(remote['host'], remote['port'], remote['user'], None, remote['key'], 'RSA')
+		sftp_client.get(temp.name + '/' + images[0], remote['folder'] + '/' + images[0])
+		sftp_client.close()
+
+		img = Image.open(temp.name + '/' + images[0])
+		width, height = img.size
+		img.close()
 
 	return width, height
-
 
 
 def get_transformation(size=None, crop=None, scale=None, aspect=None, rotate=0, local_path=None):
@@ -339,28 +353,33 @@ def get_transformation(size=None, crop=None, scale=None, aspect=None, rotate=0, 
 	# Transformations ends
 	return tf_arg
 
-def get_ffmpeg_command(framerate, remote_folder, ):
+def get_ffmpeg_command(framerate, remote_folder, name_pattern, transform):
 	"""This command generates the ffmpeg command string to execute on the remote host"""
 	command = [
 		'ffmpeg',
-		'-r', '{}'.format(options.framerate),
+		'-r', '{}'.format(framerate),
 		'-f', 'image2',
 		'-start_number', '0000000000.jpg',
-		'-i', options.in_folder + '/' + image_name_pattern,
+		'-i', remote_folder + '/' + name_pattern,
 		'-codec:v', 'libx264']
 
-	if options.crop or bool(options.scale) or bool(options.rotate):
+	if bool(transform):
 		command.append('-vf')
-		command.append(get_transformation())
+		command.append(transform)
 
-	command.append(options.out_folder + '/' + video_name + '.mp4')
+	# Lazily using a timestamp to name the output. Should be pretty much entirely unique
+	video_name = 'Timelapse-{:%Y-%m-%d %H_%M_%S}'.format(datetime.datetime.now())
+
+	command.append(remote_folder + '/' + video_name + '.mp4')
 
 	return command
 
 
 if __name__ == "__main__":
-	check_options()
-	local_dir = init()
+	options = check_options()
+	local_dir = init(remote_info)
+	image_handling(options.duration, options.period, local_dir.name, image_name_pattern, options.allowed_types, remote_info)
+
 
 
 print('Making timelapse with selected options now')
