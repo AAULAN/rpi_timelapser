@@ -230,14 +230,17 @@ def init(remote):
 	sftp_client.mkdir(remote['folder'] + '/capture_' + str(next_folder))
 	sftp_client.close()
 
-	return temp_dir
+	remote_dir = 'capture_' + str(next_folder)
+
+	return temp_dir, remote_dir
 
 
-def put_images(images, local_path, remote, remove_files=False):
+def put_images(images, local_path, remote_dir, remote, remove_files=False):
 	sftp_client = create_sftp_client(remote['host'], remote['port'], remote['user'], None, remote['key'], 'RSA')
 
 	for image in images:
-		sftp_client.put(local_path + '/' + image, remote['folder'] + '/' + image)
+		print("Moving {}".format(local_path + '/' + image))
+		sftp_client.put(local_path + '/' + image, remote['folder'] + '/' + remote_dir + '/' + image)
 
 		if remove_files:
 			remove(local_path + '/' + image)
@@ -245,7 +248,7 @@ def put_images(images, local_path, remote, remove_files=False):
 	sftp_client.close()
 
 
-def image_handling(duration, period, local_path, name_pattern, allowed_types, remote, rotate=False):
+def image_handling(duration, period, local_path, remote_dir, name_pattern, allowed_types, remote, rotate=False):
 
 	base_command = ['raspistill']
 
@@ -267,7 +270,7 @@ def image_handling(duration, period, local_path, name_pattern, allowed_types, re
 		if last_image % 10 == 0:  # For every 10 images, move them to the remote
 			imgs = get_images(local_path, allowed_types)
 			print("Putting images on remote")
-			put_images(imgs, local_path, remote, True)
+			put_images(imgs, local_path, remote, remote_dir, True)
 
 		else:
 			sleep(1)  # Avoid a busy loop
@@ -393,11 +396,11 @@ if __name__ == "__main__":
 	print("Checking options")
 	options = check_options()
 
-	local_dir = init(remote_info)
+	local_dir, remote_dir = init(remote_info)
 	print("Set up temporary local folder {}".format(local_dir.name))
 
 	print("Starting timelapse with settings: {} ".format('something'))
-	image_handling(options.duration, options.period, local_dir.name, image_name_pattern, options.allowed_types, remote_info, bool(options.rotate))
+	image_handling(options.duration, options.period, local_dir.name, remote_dir, image_name_pattern, options.allowed_types, remote_info,  bool(options.rotate))
 
 	size = get_image_size(remote_info, options.allowed_types)
 	transform = get_transformation(size, options.crop, options.scale, options.rotate)
