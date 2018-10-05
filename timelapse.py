@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
-from os import listdir, remove
+from os import listdir, remove, symlink
+import errno
 from os.path import isfile, join, splitext
 from optparse import OptionParser, OptionGroup
 from time import sleep, time
@@ -10,10 +11,13 @@ import math
 import sys
 import tempfile
 
+from shutil import copyfile
+
 try:
 	from PIL import Image
 except ImportError:
-	sys.exit("You need Pillow!\nInstall it from https://pillow.readthedocs.io/en/3.3.x/installation.html#basic-installation")
+	sys.exit(
+		"You need Pillow!\nInstall it from https://pillow.readthedocs.io/en/3.3.x/installation.html#basic-installation")
 
 try:
 	import paramiko
@@ -37,6 +41,8 @@ remote_info = {
 	'key': '/home/timelapser/.ssh/id_rsa',
 	'folder': '/home/timelapser/timelapses'
 }
+
+
 # CONFIG END
 
 
@@ -114,6 +120,7 @@ def create_command_line_options():
 
 	return options
 
+
 # Found here: https://www.ivankrizsan.se/2016/04/28/implementing-a-sftp-client-using-python-and-paramiko/
 def create_sftp_client(host, port, username, password=None, keyfilepath=None, keyfiletype=None, skip_sftp=False):
 	"""
@@ -166,7 +173,6 @@ def create_sftp_client(host, port, username, password=None, keyfilepath=None, ke
 
 # Option checker
 def check_options():
-
 	opt = create_command_line_options()
 
 	# Timing option checks
@@ -279,8 +285,19 @@ def put_image(local_path, remote_path, remote, remove_files=False):
 	sftp_client.close()
 
 
-def image_handling(duration, period, local_path, remote_dir, name_pattern, allowed_types, remote, rotate=False):
+def symlink_force(target, link_name):
 
+	try:
+		symlink(target, link_name)
+	except OSError as e:
+		if e.errno == errno.EEXIST:
+			remove(link_name)
+			symlink(target, link_name)
+		else:
+			raise e
+
+
+def image_handling(duration, period, local_path, remote_dir, name_pattern, allowed_types, remote, rotate=False):
 	base_command = ['raspistill']
 
 	if rotate:
@@ -298,8 +315,11 @@ def image_handling(duration, period, local_path, remote_dir, name_pattern, allow
 			last_image += 1
 			subprocess.run(command)
 
+			symlink_force(command[-1], local_path + '/' + 'latest.jpg')
+
 			if remote_dir is not None:
-				put_image(command[-1], remote['folder'] + '/' + remote_dir + '/' + command[-1].split('/')[-1], remote, True)
+				put_image(command[-1], remote['folder'] + '/' + remote_dir + '/' + command[-1].split('/')[-1], remote,
+						  True)
 
 		else:
 			sleep(1)  # Avoid a busy loop
@@ -334,7 +354,6 @@ def get_images(path, file_types, local=True, remote=None):
 
 
 def get_image_size(remote, allowed_type):
-
 	images = get_images(None, allowed_type, False, remote)
 
 	with tempfile.TemporaryDirectory() as temp:
@@ -373,7 +392,7 @@ def get_transformation(size, crop=None, scale=None, rotate=0):
 			scale_argument = 'scale={}:-1'.format(scale[0])
 
 	if bool(rotate):
-		pass#flip_argument = 'hflip,vflip'
+		pass  # flip_argument = 'hflip,vflip'
 
 	# construct transformation argument
 
@@ -384,7 +403,7 @@ def get_transformation(size, crop=None, scale=None, rotate=0):
 		tf_arg.append(scale_argument)
 
 	if bool(rotate):
-		pass#tf_arg.append(flip_argument)
+		pass  # tf_arg.append(flip_argument)
 
 	return ' '.join(map(str, tf_arg))
 
@@ -396,7 +415,7 @@ def get_ffmpeg_command(framerate, remote_folder, name_pattern, transform):
 		'-r', '{}'.format(framerate),
 		'-f', 'image2',
 		'-start_number', '0000000001',
-		'-i', '{}/{}'.format(remote_folder,name_pattern),
+		'-i', '{}/{}'.format(remote_folder, name_pattern),
 		'-codec:v', 'libx264']
 
 	if bool(transform):
@@ -412,7 +431,6 @@ def get_ffmpeg_command(framerate, remote_folder, name_pattern, transform):
 
 
 def make_video(ffmpeg_command, remote):
-
 	command = 'nohup '
 	command += ' '.join(map(str, ffmpeg_command))
 	command += ' &'
@@ -437,7 +455,8 @@ if __name__ == "__main__":
 	print("Starting timelapse with settings: {}s period, ".format('something'))
 
 	if not bool(options.ffmpeg_only):
-		image_handling(options.duration, options.period, local_dir, remote_dir, image_name_pattern, options.allowed_types, remote_info, bool(options.rotate))
+		image_handling(options.duration, options.period, local_dir, remote_dir, image_name_pattern,
+					   options.allowed_types, remote_info, bool(options.rotate))
 
 	if remote_dir is not None or bool(options.ffmpeg_only):
 		size = get_image_size(remote_info, options.allowed_types)
@@ -445,5 +464,4 @@ if __name__ == "__main__":
 		ffmpeg_command = get_ffmpeg_command(options.framrate, remote_info['folder'], 'img%010d.jpg', transform)
 
 	print('Making timelapse with selected options now')
-	# make_video(ffmpeg_command, remote_info)
-
+# make_video(ffmpeg_command, remote_info)
