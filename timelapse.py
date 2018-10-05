@@ -62,7 +62,7 @@ def create_command_line_options():
 		help="Duration in seconds for the final video")
 
 	timing_options.add_option(
-		"-r", "--framerate",
+		"-f", "--framerate",
 		type="int", default=10,
 		action="store", dest="framerate",
 		help="User specified framerate of the finished timelapse")
