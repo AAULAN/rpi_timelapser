@@ -238,6 +238,8 @@ def init(remote):
 def put_images(images, local_path, remote_dir, remote, remove_files=False):
 	sftp_client = create_sftp_client(remote['host'], remote['port'], remote['user'], None, remote['key'], 'RSA')
 
+	print(images)
+
 	for image in images:
 		print("Moving {}".format(local_path + '/' + image))
 		sftp_client.put(local_path + '/' + image, remote['folder'] + '/' + remote_dir + '/' + image)
@@ -271,6 +273,7 @@ def image_handling(duration, period, local_path, remote_dir, name_pattern, allow
 			imgs = get_images(local_path, allowed_types)
 			print("Putting images on remote")
 			put_images(imgs, local_path, remote_dir, remote, True)
+			print(imgs)
 
 		else:
 			sleep(1)  # Avoid a busy loop
