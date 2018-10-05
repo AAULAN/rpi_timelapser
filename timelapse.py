@@ -169,12 +169,6 @@ def check_options():
 
 	opt = create_command_line_options()
 
-	if bool(opt.local_storage):
-		return opt
-
-	if bool(opt.ffmpeg_only):
-		return opt
-
 	# Timing option checks
 	timing_options_set = 0
 
@@ -218,6 +212,12 @@ def check_options():
 
 		else:
 			sys.exit("Too few timing parameters given")
+
+	if bool(opt.local_storage):
+		return opt
+
+	if bool(opt.ffmpeg_only):
+		return opt
 
 	# Ensure crop and ratio are both supplied if either are supplied
 	if len(opt.crop) != 2:
