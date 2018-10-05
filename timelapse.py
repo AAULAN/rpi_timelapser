@@ -250,6 +250,17 @@ def put_images(images, local_path, remote_dir, remote, remove_files=False):
 	sftp_client.close()
 
 
+def put_image(local_path, remote_path, remote, remove_files=False):
+	sftp_client = create_sftp_client(remote['host'], remote['port'], remote['user'], None, remote['key'], 'RSA')
+
+	sftp_client.put(local_path, remote_path)
+
+	if remove_files:
+		remove(local_path)
+
+	sftp_client.close()
+
+
 def image_handling(duration, period, local_path, remote_dir, name_pattern, allowed_types, remote, rotate=False):
 
 	base_command = ['raspistill']
@@ -269,11 +280,7 @@ def image_handling(duration, period, local_path, remote_dir, name_pattern, allow
 			last_image += 1
 			subprocess.run(command)
 
-		if last_image % 10 == 0:  # For every 10 images, move them to the remote
-			imgs = get_images(local_path, allowed_types)
-			print("Putting images on remote")
-			put_images(imgs, local_path, remote_dir, remote, True)
-			print(imgs)
+			put_image(local_path + '/' + name_pattern % (last_image,), remote['folder'] + '/' + remote_dir + '/' + last_image)
 
 		else:
 			sleep(1)  # Avoid a busy loop
