@@ -237,7 +237,7 @@ def put_images(images, local_path, remote, remove_files=False):
 	sftp_client = create_sftp_client(remote['host'], remote['port'], remote['user'], None, remote['key'], 'RSA')
 
 	for image in images:
-		sftp_client.put(local_path + image, remote['folder'] + image)
+		sftp_client.put(local_path + image, remote['folder'] + '/' + image)
 
 		if remove_files:
 			remove(local_path + image)
