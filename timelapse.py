@@ -452,7 +452,7 @@ if __name__ == "__main__":
 		local_dir = local_dir.name
 		print("Set up temporary local folder {}".format(local_dir))
 
-	print("Starting timelapse with settings: {}s period, ".format('something'))
+	print("Starting timelapse with settings: {}s period, ".format(options.period))
 
 	if not bool(options.ffmpeg_only):
 		image_handling(options.duration, options.period, local_dir, remote_dir, image_name_pattern,
