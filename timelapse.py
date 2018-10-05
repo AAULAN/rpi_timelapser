@@ -211,7 +211,6 @@ def check_options():
 def init(remote):
 	# Set up local image folder
 	temp_dir = tempfile.TemporaryDirectory()
-	print('created temporary directory', temp_dir.name)
 
 	# Get last output folder name on remote
 	sftp_client = create_sftp_client(remote['host'], remote['port'], remote['user'], None, remote['key'], 'RSA')
@@ -228,7 +227,8 @@ def init(remote):
 	print('Starting timelapse number: ' + str(next_folder))
 
 	# Create new folder on remote
-	sftp_client.mkdir(remote['folder'] + 'capture_' + str(next_folder), 771)
+	sftp_client.mkdir(remote['folder'] + '/capture_' + str(next_folder), 771)
+	sftp_client.close()
 
 	return temp_dir
 
@@ -393,9 +393,9 @@ if __name__ == "__main__":
 	options = check_options()
 
 	local_dir = init(remote_info)
-	print("Set up temporary local folder {}".format(local_dir))
+	print("Set up temporary local folder {}".format(local_dir.name))
 
-	print("Starting timelapse with settings: {} ")
+	print("Starting timelapse with settings: {} ".format('something'))
 	image_handling(options.duration, options.period, local_dir.name, image_name_pattern, options.allowed_types, remote_info, bool(options.rotate))
 
 	size = get_image_size(remote_info, options.allowed_types)
