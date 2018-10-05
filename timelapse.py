@@ -270,7 +270,7 @@ def image_handling(duration, period, local_path, remote_dir, name_pattern, allow
 		if last_image % 10 == 0:  # For every 10 images, move them to the remote
 			imgs = get_images(local_path, allowed_types)
 			print("Putting images on remote")
-			put_images(imgs, local_path, remote, remote_dir, True)
+			put_images(imgs, local_path, remote_dir, remote, True)
 
 		else:
 			sleep(1)  # Avoid a busy loop
