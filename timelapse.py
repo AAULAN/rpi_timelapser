@@ -280,7 +280,7 @@ def image_handling(duration, period, local_path, remote_dir, name_pattern, allow
 			last_image += 1
 			subprocess.run(command)
 
-			put_image(local_path + '/' + name_pattern % (last_image,), remote['folder'] + '/' + remote_dir + '/' + last_image)
+			put_image(command[-1], remote['folder'] + '/' + remote_dir + '/' + command[-1].split('/')[-1])
 
 		else:
 			sleep(1)  # Avoid a busy loop
