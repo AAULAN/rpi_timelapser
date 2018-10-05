@@ -72,6 +72,12 @@ def create_command_line_options():
 	storage_options = OptionGroup(opt_parser, "Format options")
 
 	storage_options.add_option(
+		"-l", "--local",
+		action="store", dest="local_storage",
+		help="Supply a local path to run this independent of a remote server. No FFMPEG will be run. Ex: -l /home/[user]/timelapses"
+	)
+
+	storage_options.add_option(
 		"-t", "--type",
 		default=".jpg",
 		action="append", dest="allowed_types",
@@ -79,6 +85,12 @@ def create_command_line_options():
 	opt_parser.add_option_group(storage_options)
 
 	post_processing_options = OptionGroup(opt_parser, "Post Processing options")
+
+	post_processing_options.add_option(
+		"-F", "--onlyffmpeg",
+		action="store", dest="ffmpeg_only",
+		help="Specify input folder with images, to run ffmpeg on standalone. Ex: -F /home/[user]/timelapses/timelapse1"
+	)
 
 	post_processing_options.add_option(
 		"-r", "--rotate",
@@ -156,6 +168,12 @@ def create_sftp_client(host, port, username, password=None, keyfilepath=None, ke
 def check_options():
 
 	opt = create_command_line_options()
+
+	if bool(opt.local_storage):
+		return opt
+
+	if bool(opt.ffmpeg_only):
+		return opt
 
 	# Timing option checks
 	timing_options_set = 0
