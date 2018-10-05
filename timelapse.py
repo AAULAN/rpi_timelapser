@@ -264,7 +264,7 @@ def image_handling(duration, period, local_path, name_pattern, allowed_types, re
 			last_image += 1
 			subprocess.run(command)
 
-		elif last_image % 10 == 0:  # For every 10 images, move them to the remote
+		if last_image % 10 == 0:  # For every 10 images, move them to the remote
 			imgs = get_images(local_path, allowed_types)
 			print("Putting images on remote")
 			put_images(imgs, local_path, remote['folder'], remote, True)
