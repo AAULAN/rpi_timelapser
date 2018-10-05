@@ -312,6 +312,7 @@ def image_handling(duration, period, local_path, remote_dir, name_pattern, allow
 	start = time()
 	while time() - start < duration:
 		if time() - last_image_time >= period:
+			last_image_time = time()
 			command = base_command[:]
 			command[-1] += name_pattern % (last_image + 1,)
 			last_image += 1
