@@ -227,7 +227,7 @@ def init(remote):
 	print('Starting timelapse number: ' + str(next_folder))
 
 	# Create new folder on remote
-	sftp_client.mkdir(remote['folder'] + '/capture_' + str(next_folder), 771)
+	sftp_client.mkdir(remote['folder'] + '/capture_' + str(next_folder))
 	sftp_client.close()
 
 	return temp_dir
