@@ -298,18 +298,20 @@ def image_handling(duration, period, local_path, remote_dir, name_pattern, allow
 			last_image += 1
 			subprocess.run(command)
 
-			put_image(command[-1], remote['folder'] + '/' + remote_dir + '/' + command[-1].split('/')[-1], remote, True)
+			if remote_dir is not None:
+				put_image(command[-1], remote['folder'] + '/' + remote_dir + '/' + command[-1].split('/')[-1], remote, True)
 
 		else:
 			sleep(1)  # Avoid a busy loop
 
 	# Timelapse done, move the rest of the images
-	imgs = get_images(local_path, allowed_types)
-	put_images(imgs, local_path, remote['folder'], remote, True)
+	if remote_dir is not None:
+		imgs = get_images(local_path, allowed_types)
+		put_images(imgs, local_path, remote['folder'], remote, True)
 
 
 def get_images(path, file_types, local=True, remote=None):
-	"This returns a list of all images of allowed type in the path"
+	"""This returns a list of all images of allowed type in the path"""
 	# print("Getting images from {} of type {}".format(path, ','.join(file_types)))
 	print("Getting images from {}".format(path))
 
@@ -424,16 +426,24 @@ if __name__ == "__main__":
 	print("Checking options")
 	options = check_options()
 
-	local_dir, remote_dir = init(remote_info)
-	print("Set up temporary local folder {}".format(local_dir.name))
+	local_dir, remote_dir = None, None
+	if bool(options.local_storage):
+		local_dir = options.local_storage
+	elif not bool(options.ffmpeg_only):
+		local_dir, remote_dir = init(remote_info)
+		local_dir = local_dir.name
+		print("Set up temporary local folder {}".format(local_dir))
 
-	print("Starting timelapse with settings: {} ".format('something'))
-	image_handling(options.duration, options.period, local_dir.name, remote_dir, image_name_pattern, options.allowed_types, remote_info,  bool(options.rotate))
+	print("Starting timelapse with settings: {}s period, ".format('something'))
 
-	size = get_image_size(remote_info, options.allowed_types)
-	transform = get_transformation(size, options.crop, options.scale, options.rotate)
-	ffmpeg_command = get_ffmpeg_command(options.framrate, remote_info['folder'], 'img%010d.jpg', transform)
+	if not bool(options.ffmpeg_only):
+		image_handling(options.duration, options.period, local_dir.name, remote_dir, image_name_pattern, options.allowed_types, remote_info, bool(options.rotate))
+
+	if remote_dir is not None or bool(options.ffmpeg_only):
+		size = get_image_size(remote_info, options.allowed_types)
+		transform = get_transformation(size, options.crop, options.scale, options.rotate)
+		ffmpeg_command = get_ffmpeg_command(options.framrate, remote_info['folder'], 'img%010d.jpg', transform)
 
 	print('Making timelapse with selected options now')
-	#make_video(ffmpeg_command, remote_info)
+	# make_video(ffmpeg_command, remote_info)
 
