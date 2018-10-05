@@ -437,7 +437,7 @@ if __name__ == "__main__":
 	print("Starting timelapse with settings: {}s period, ".format('something'))
 
 	if not bool(options.ffmpeg_only):
-		image_handling(options.duration, options.period, local_dir.name, remote_dir, image_name_pattern, options.allowed_types, remote_info, bool(options.rotate))
+		image_handling(options.duration, options.period, local_dir, remote_dir, image_name_pattern, options.allowed_types, remote_info, bool(options.rotate))
 
 	if remote_dir is not None or bool(options.ffmpeg_only):
 		size = get_image_size(remote_info, options.allowed_types)
