@@ -3,7 +3,7 @@
 from os import listdir, remove
 from os.path import isfile, join, splitext
 from optparse import OptionParser, OptionGroup
-from time import sleep
+from time import sleep, time
 import datetime
 import subprocess
 import math
@@ -13,12 +13,12 @@ import tempfile
 try:
 	from PIL import Image
 except ImportError:
-	sys.exit("You need Pillow!\ninstall it from https://pillow.readthedocs.io/en/3.3.x/installation.html#basic-installation")
+	sys.exit("You need Pillow!\nInstall it from https://pillow.readthedocs.io/en/3.3.x/installation.html#basic-installation")
 
 try:
 	import paramiko
 except ImportError:
-	sys.exit("You need Paramiko: pip3 install paramiko")
+	sys.exit("You need Paramiko!\nInstall it with: pip3 install paramiko")
 
 opt_parser = OptionParser()
 
@@ -34,13 +34,13 @@ remote_info = {
 	'host': '35.242.212.146',
 	'port': 22,
 	'user': 'timelapser',
-	'key': '~/.ssh/id_rsa',
+	'key': '/home/timelapser/.ssh/id_rsa',
 	'folder': '/home/timelapser/timelapses'
 }
 # CONFIG END
 
 
-def create_command_line_options()
+def create_command_line_options():
 	# Command line options
 	timing_options = OptionGroup(opt_parser, "Timing options")
 	timing_options.add_option(
@@ -123,13 +123,16 @@ def create_sftp_client(host, port, username, password=None, keyfilepath=None, ke
 	key = None
 	try:
 		if keyfilepath is not None:
+			key_file = open(keyfilepath, 'r')
 			# Get private key used to authenticate user.
 			if keyfiletype == 'DSA':
 				# The private key is a DSA type key.
-				key = paramiko.DSSKey.from_private_key_file(keyfilepath)
+				key = paramiko.DSSKey.from_private_key_file(key_file)
 			else:
 				# The private key is a RSA type key.
-				key = paramiko.RSAKey.from_private_key(keyfilepath)
+				key = paramiko.RSAKey.from_private_key(key_file)
+
+			key_file.close()
 
 		# Connect SSH client accepting all host keys.
 		ssh = paramiko.SSHClient()
@@ -210,6 +213,7 @@ def check_options():
 
 	return opt
 
+
 def init(remote):
 	# Set up local image folder
 	temp_dir = tempfile.TemporaryDirectory()
@@ -235,11 +239,11 @@ def init(remote):
 	return temp_dir
 
 
-def put_images(images, local_path, remote_path, remove_files=False):
+def put_images(images, local_path, remote, remove_files=False):
 	sftp_client = create_sftp_client(remote['host'], remote['port'], remote['user'], None, remote['key'], 'RSA')
 
 	for image in images:
-		sftp_client.put(local_path + image, remote_path + image)
+		sftp_client.put(local_path + image, remote['folder'] + image)
 
 		if remove_files:
 			remove(local_path + image)
@@ -247,24 +251,35 @@ def put_images(images, local_path, remote_path, remove_files=False):
 	sftp_client.close()
 
 
-def image_handling(duration, period, local_path, name_pattern, allowed_types, remote):
-	command = [
-		'raspistill',
-		'-t', duration * 1000,
-		'-tl', period * 1000,
-		'-o', local_path + '/' + name_pattern
-	]
-	p = subprocess.Popen(command)
+def image_handling(duration, period, local_path, name_pattern, allowed_types, remote, rotate=False):
 
-	while p.poll() is None:
-		imgs = get_images(local_path, allowed_types)
+	base_command = ['raspistill']
 
-		if len(imgs) >= 10:
-			put_images(imgs, local_path, remote['folder'], True)
-		sleep(1)
+	if rotate:
+		base_command += ['-hf', '-vf']
 
+	base_command += ['-o', local_path + '/']
+
+	last_image = 0
+	last_image_time = 0
+	start = time()
+	while time() - start < duration:
+		if time() - last_image_time >= period:
+			command = base_command[:]
+			command[-1] += name_pattern % (last_image + 1,)
+			last_image += 1
+			subprocess.run(command)
+
+		elif not bool(last_image % 10):  # For every 10 images, move them to the remote
+			imgs = get_images(local_path, allowed_types)
+			put_images(imgs, local_path, remote['folder'], remote, True)
+
+		else:
+			sleep(1)  # Avoid a busy loop
+
+	# Timelapse done, move the rest of the images
 	imgs = get_images(local_path, allowed_types)
-	put_images(imgs, local_path, remote['folder'], True)
+	put_images(imgs, local_path, remote['folder'], remote, True)
 
 
 def get_images(path, file_types, local=True, remote=None):
@@ -303,10 +318,10 @@ def get_image_size(remote, allowed_type):
 		width, height = img.size
 		img.close()
 
-	return width, height
+	return [width, height]
 
 
-def get_transformation(size=None, crop=None, scale=None, aspect=None, rotate=0, local_path=None):
+def get_transformation(size, crop=None, scale=None, rotate=0):
 	"""Constructs a list of transform operations for ffmpeg"""
 
 	tf_arg = []
@@ -314,20 +329,13 @@ def get_transformation(size=None, crop=None, scale=None, aspect=None, rotate=0, 
 	scale_argument = ''
 	flip_argument = ''
 
-	if crop:
-		if size is None:
-			# Get the dimensions of the first image.
-			width, height = get_image_size(local_path)#TODO
-		else:
-			width = size[0]
-			height = size[1]
+	if bool(crop):
+		cropped_height = math.floor(size[0] * crop[1] / crop[0])
+		crop_height_start = math.floor((size[1] - cropped_height) / 2)
 
-		cropped_height = math.floor(width * aspect[1] / aspect[0])
-		crop_height_start = math.floor((height - cropped_height) / 2)
+		crop_argument = 'crop={}:{}:0:{}'.format(size[0], cropped_height, crop_height_start)
 
-		crop_argument = 'crop={}:{}:0:{}'.format(width, cropped_height, crop_height_start)
-
-	if scale > 0:
+	if bool(scale):
 		if len(scale) > 2:
 			sys.exit('Invalid scale')
 
@@ -337,7 +345,7 @@ def get_transformation(size=None, crop=None, scale=None, aspect=None, rotate=0, 
 			scale_argument = 'scale={}:-1'.format(scale[0])
 
 	if bool(rotate):
-		flip_argument = 'hflip,vflip'
+		pass#flip_argument = 'hflip,vflip'
 
 	# construct transformation argument
 
@@ -348,10 +356,10 @@ def get_transformation(size=None, crop=None, scale=None, aspect=None, rotate=0, 
 		tf_arg.append(scale_argument)
 
 	if bool(rotate):
-		tf_arg.append(flip_argument)
+		pass#tf_arg.append(flip_argument)
 
-	# Transformations ends
-	return tf_arg
+	return ' '.join(map(str, tf_arg))
+
 
 def get_ffmpeg_command(framerate, remote_folder, name_pattern, transform):
 	"""This command generates the ffmpeg command string to execute on the remote host"""
@@ -359,8 +367,8 @@ def get_ffmpeg_command(framerate, remote_folder, name_pattern, transform):
 		'ffmpeg',
 		'-r', '{}'.format(framerate),
 		'-f', 'image2',
-		'-start_number', '0000000000.jpg',
-		'-i', remote_folder + '/' + name_pattern,
+		'-start_number', '0000000001',
+		'-i', '{}/{}'.format(remote_folder,name_pattern),
 		'-codec:v', 'libx264']
 
 	if bool(transform):
@@ -368,24 +376,38 @@ def get_ffmpeg_command(framerate, remote_folder, name_pattern, transform):
 		command.append(transform)
 
 	# Lazily using a timestamp to name the output. Should be pretty much entirely unique
-	video_name = 'Timelapse-{:%Y-%m-%d %H_%M_%S}'.format(datetime.datetime.now())
+	video_name = 'Timelapse-{:%Y-%m-%d_%H-%M-%S}'.format(datetime.datetime.now())
 
 	command.append(remote_folder + '/' + video_name + '.mp4')
 
 	return command
 
 
+def make_video(ffmpeg_command, remote):
+
+	command = 'nohup '
+	command += ' '.join(map(str, ffmpeg_command))
+	command += ' &'
+
+	ssh_client = create_sftp_client(remote['host'], remote['port'], remote['user'], None, remote['key'], 'RSA', True)
+	ssh_client.exec_command(command)
+	ssh_client.close()
+
+
 if __name__ == "__main__":
+	print("Checking options")
 	options = check_options()
+
 	local_dir = init(remote_info)
+	print("Set up temporary local folder {}".format(local_dir))
+
+	print("Starting timelapse with settings: {} ")
 	image_handling(options.duration, options.period, local_dir.name, image_name_pattern, options.allowed_types, remote_info)
 
+	size = get_image_size(remote_info, options.allowed_types)
+	transform = get_transformation(size)
+	ffmpeg_command = get_ffmpeg_command(options.framrate, remote_info['folder'], 'img%010d.jpg', transform)
 
+	print('Making timelapse with selected options now')
+	#make_video(ffmpeg_command, remote_info)
 
-print('Making timelapse with selected options now')
-
-ssh_client = create_sftp_client(remote['host'], remote['port'], remote['user'], None, remote['key'], 'RSA', True)
-ssh_client.exec_command(' '.join(get_ffmpeg_command()))
-ssh_client.close()
-
-print('Done')
