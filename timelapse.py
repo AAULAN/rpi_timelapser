@@ -402,7 +402,7 @@ if __name__ == "__main__":
 	print("Set up temporary local folder {}".format(local_dir))
 
 	print("Starting timelapse with settings: {} ")
-	image_handling(options.duration, options.period, local_dir.name, image_name_pattern, options.allowed_types, remote_info)
+	image_handling(options.duration, options.period, local_dir.name, image_name_pattern, options.allowed_types, remote_info, bool(options.rotate))
 
 	size = get_image_size(remote_info, options.allowed_types)
 	transform = get_transformation(size)
