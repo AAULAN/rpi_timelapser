@@ -45,25 +45,25 @@ def create_command_line_options():
 	timing_options = OptionGroup(opt_parser, "Timing options")
 	timing_options.add_option(
 		"-p", "--period",
-		type="int", default=0,
+		type="int",
 		action="store", dest="period",
 		help="Period between images in seconds")
 
 	timing_options.add_option(
 		"-d", "--duration",
-		type="int", default=0,
+		type="int",
 		action="store", dest="duration",
 		help="Duration in seconds for the timelapser to run")
 
 	timing_options.add_option(
 		"-D", "--videoduration",
-		type="int", default=0,
+		type="int",
 		action="store", dest="vid_duration",
 		help="Duration in seconds for the final video")
 
 	timing_options.add_option(
 		"-f", "--framerate",
-		type="int", default=10,
+		type="int",
 		action="store", dest="framerate",
 		help="User specified framerate of the finished timelapse")
 
@@ -81,21 +81,15 @@ def create_command_line_options():
 	post_processing_options = OptionGroup(opt_parser, "Post Processing options")
 
 	post_processing_options.add_option(
-		"-R", "--rotate",
+		"-r", "--rotate",
 		type="int", default=0,
 		action="store", dest="rotate",
 		help="Degrees to rotate image. Currently only 180 or 0 Deg is supported")
-
 	post_processing_options.add_option(
 		"-c", "--crop",
-		default=False,
-		action="store_true", dest="crop",
-		help="Crop image to supplied ratio requires ratio to be provided")
-	post_processing_options.add_option(
-		"-a", "--ratio",
 		type="float",
-		action="append", dest="ratio",
-		help="Desired output ratio, Ex: -a 16 -a 9 will be 16:9")
+		action="append", dest="crop",
+		help="Crop image to supplied ratio ex: -c 16 -c 9")
 	post_processing_options.add_option(
 		"-s", "--scale",  # TODO Ensure that this doesn't append inputs to the default 0
 		default=0,
@@ -208,8 +202,8 @@ def check_options():
 			sys.exit("Too few timing parameters given")
 
 	# Ensure crop and ratio are both supplied if either are supplied
-	if bool(opt.crop) != (len(opt.ratio) == 2):
-		sys.exit("Crop and ratio have to be used together. ratio has to be 2 numbers")
+	if len(opt.crop) != 2:
+		sys.exit("Crop requires two numbers")
 
 	return opt
 
@@ -349,7 +343,7 @@ def get_transformation(size, crop=None, scale=None, rotate=0):
 
 	# construct transformation argument
 
-	if crop:
+	if bool(crop):
 		tf_arg.append(crop_argument)
 
 	if scale:
@@ -405,7 +399,7 @@ if __name__ == "__main__":
 	image_handling(options.duration, options.period, local_dir.name, image_name_pattern, options.allowed_types, remote_info, bool(options.rotate))
 
 	size = get_image_size(remote_info, options.allowed_types)
-	transform = get_transformation(size)
+	transform = get_transformation(size, options.crop, options.scale, options.rotate)
 	ffmpeg_command = get_ffmpeg_command(options.framrate, remote_info['folder'], 'img%010d.jpg', transform)
 
 	print('Making timelapse with selected options now')
