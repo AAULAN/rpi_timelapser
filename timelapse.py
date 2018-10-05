@@ -305,6 +305,8 @@ def image_handling(duration, period, local_path, remote_dir, name_pattern, allow
 
 	base_command += ['-o', local_path + '/']
 
+	imgs = get_images(local_path, allowed_types)
+
 	last_image = 0
 	last_image_time = 0
 	start = time()
