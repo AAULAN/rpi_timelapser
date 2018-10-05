@@ -27,7 +27,7 @@ opt_parser = OptionParser()
 # The pattern passed to ffmpeg for images to look for. in this example it looks
 # for images named img followed by 5 digits. fx 00001, then .jpg.
 # It's case sensitive
-image_name_pattern = 'img%010d.jpg'
+image_name_pattern = 'img%05d.jpg'
 
 # Remote
 remote_info = {
@@ -267,7 +267,7 @@ def image_handling(duration, period, local_path, name_pattern, allowed_types, re
 		if last_image % 10 == 0:  # For every 10 images, move them to the remote
 			imgs = get_images(local_path, allowed_types)
 			print("Putting images on remote")
-			put_images(imgs, local_path, remote['folder'], remote, True)
+			put_images(imgs, local_path, remote, True)
 
 		else:
 			sleep(1)  # Avoid a busy loop
